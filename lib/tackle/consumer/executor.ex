@@ -15,34 +15,40 @@ defmodule Tackle.Consumer.Executor do
   end
 
   def init(options) do
+    state = connect(options)
+
     # so, we can cleanup with terminate callback
     Process.flag(:trap_exit, true)
-
-    state =
-      options
-      |> Tackle.Consumer.State.configure!()
-      |> setup!()
-
     {:ok, state}
   end
 
-  defp setup!(%{topology: topology} = state) do
-    {:ok, channel} =
-      setup_connection_channel(
-        state.connection_id,
-        state.rabbitmq_url,
-        state.prefetch_count
-      )
+  defp connect(options) do
+    options
+    |> Tackle.Consumer.State.configure!()
+    |> setup(options)
+  end
 
-    Tackle.Consumer.Topology.setup!(channel, topology)
+  defp setup(%{topology: topology} = state, options) do
+    with {:ok, channel} <-
+           setup_connection_channel(
+             state.connection_id,
+             state.rabbitmq_url,
+             state.prefetch_count
+           ) do
+      Tackle.Consumer.Topology.setup!(channel, topology)
 
-    # start actual consuming
-    {:ok, _consumer_tag} = AMQP.Basic.consume(channel, topology.queue)
+      # start actual consuming
+      {:ok, _consumer_tag} = AMQP.Basic.consume(channel, topology.queue)
 
-    # Sleep is needed for the ConnectionErrorsTest
-    Process.sleep(2)
+      # Sleep is needed for the ConnectionErrorsTest
+      Process.sleep(2)
 
-    Tackle.Consumer.State.started(state, channel: channel)
+      Tackle.Consumer.State.started(state, channel: channel)
+    else
+      _ ->
+        Process.send_after(self(), {:connect, options}, 3_000)
+        %{}
+    end
   end
 
   defp setup_connection_channel(connection_id, url, prefetch_count) do
@@ -55,8 +61,15 @@ defmodule Tackle.Consumer.Executor do
   end
 
   # Close channel on exit
-  def terminate(_reason, state) do
+  def terminate(_reason, %{channel: channel} = state) do
     state.channel |> Tackle.Channel.close()
+  end
+  def terminate(_reason, state), do: :ok
+
+  def handle_info({:connect, options}, _state) do
+    state = connect(options)
+
+    {:noreply, state}
   end
 
   def handle_info({:basic_consume_ok, _}, state), do: {:noreply, state}
@@ -90,9 +103,7 @@ defmodule Tackle.Consumer.Executor do
         } = state
       ) do
     Logger.warn(
-      "Connection process went down (#{inspect(reason)}). Stopping Consumer for queue #{
-        topology.queue
-      }"
+      "Connection process went down (#{inspect(reason)}). Stopping Consumer for queue #{topology.queue}"
     )
 
     {:stop, {:connection_lost, reason}, state}
