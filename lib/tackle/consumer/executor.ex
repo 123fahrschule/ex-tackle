@@ -61,10 +61,10 @@ defmodule Tackle.Consumer.Executor do
   end
 
   # Close channel on exit
-  def terminate(_reason, %{channel: channel} = state) do
+  def terminate(_reason, %{channel: _channel} = state) do
     state.channel |> Tackle.Channel.close()
   end
-  def terminate(_reason, state), do: :ok
+  def terminate(_reason, _state), do: :ok
 
   def handle_info({:connect, options}, _state) do
     state = connect(options)
