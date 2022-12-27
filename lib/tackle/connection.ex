@@ -80,7 +80,7 @@ defmodule Tackle.Connection do
         response
 
       error ->
-        Logger.error("Failed to open new connection for id: #{name}: #{error}")
+        Logger.error("Failed to open new connection for id: #{inspect(name)}: #{inspect(error)}")
         error
     end
   end
