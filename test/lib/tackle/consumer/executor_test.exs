@@ -16,12 +16,12 @@ defmodule Tackle.Consumer.ExecutorTest do
         Code.eval_quoted(quote do: 1 / 0)
       end
 
-      assert {:badarith, _stacktrace} =
+      assert {:retry_requested, _stacktrace} =
                TestConsumer.delivery_handler(bad_function, fn reason -> reason end)
     end
 
     it "consume raises" do
-      assert {%RuntimeError{message: "foo"}, _stacktrace} =
+      assert {:retry_requested, _stacktrace} =
                TestConsumer.delivery_handler(fn -> raise "foo" end, fn reason -> reason end)
     end
 
