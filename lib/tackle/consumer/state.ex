@@ -16,7 +16,8 @@ defmodule Tackle.Consumer.State do
     :consume_retry_ref,
     reconnect_interval: 1_000,
     connection_id: :default,
-    prefetch_count: 1
+    prefetch_count: 1,
+    publisher: Tackle.DelayedRetry
   ]
 
   def configure!(options) do

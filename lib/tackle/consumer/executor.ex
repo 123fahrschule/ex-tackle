@@ -259,7 +259,7 @@ defmodule Tackle.Consumer.Executor do
     if retry_count < state.topology.retry_limit do
       Logger.debug("Sending message to a delay queue")
 
-      Tackle.DelayedRetry.publish(
+      state.publisher.publish(
         state.rabbitmq_url,
         state.topology.delay_queue,
         payload,
@@ -268,7 +268,7 @@ defmodule Tackle.Consumer.Executor do
     else
       Logger.debug("Sending message to a dead messages queue")
 
-      Tackle.DelayedRetry.publish(
+      state.publisher.publish(
         state.rabbitmq_url,
         state.topology.dead_queue,
         payload,
