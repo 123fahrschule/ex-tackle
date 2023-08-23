@@ -147,7 +147,7 @@ defmodule Tackle.Consumer.Executor do
           handler: handler_module
         } = state
       ) do
-    Logger.warn(
+    Logger.warning(
       "#{handler_module} channel process went down due to `#{inspect(reason)}`. Reconnecting to `#{topology.queue}`."
     )
 

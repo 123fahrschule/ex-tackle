@@ -1,6 +1,6 @@
 import Config
 
-config :logger, level: :warn
+config :logger, level: :warning
 
 config :tackle,
   rabbitmq_host: System.get_env("RABBITMQ_HOST", "localhost"),
