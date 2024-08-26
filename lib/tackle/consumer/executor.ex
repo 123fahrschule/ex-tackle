@@ -212,6 +212,9 @@ defmodule Tackle.Consumer.Executor do
       try do
         consume_callback.()
         :ok
+      rescue
+        _reason ->
+          {:retry, {:retry_requested, __STACKTRACE__}}
       catch
         # retry on exit and throw(:retry) or throw({:retry, reason})
         :throw, :retry ->
