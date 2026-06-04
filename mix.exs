@@ -5,19 +5,17 @@ defmodule Tackle.Mixfile do
     [
       app: :tackle,
       version: "1.0.1",
-      elixir: "~> 1.6",
+      elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      test_paths: ["test"],
-      test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: preferred_cli_env()
+      test_paths: ["test"]
     ]
   end
 
   def application do
-    [applications: [:logger, :amqp, :public_key, :inets], mod: {Tackle, []}]
+    [extra_applications: [:logger, :public_key, :inets], mod: {Tackle, []}]
   end
 
   # Specifies which paths to compile per environment.
@@ -26,19 +24,9 @@ defmodule Tackle.Mixfile do
 
   defp deps do
     [
-      {:amqp, "~> 3.2"},
+      {:amqp, "~> 4.1"},
       {:ex_spec, "~> 2.0", only: [:test, :dev]},
-      {:excoveralls, "~> 0.10", only: [:test, :dev]},
-      {:tesla, "~> 1.4.1", only: [:test, :dev]}
-    ]
-  end
-
-  defp preferred_cli_env do
-    [
-      coveralls: :test,
-      "coveralls.detail": :test,
-      "coveralls.post": :test,
-      "coveralls.html": :test
+      {:req, "~> 0.5.18", only: [:test, :dev]}
     ]
   end
 end

@@ -1,6 +1,8 @@
 defmodule Tackle.MultipleServicesTest do
   use ExSpec
 
+  require Support
+
   alias Support.MessageTrace
 
   defmodule ServiceA do
@@ -61,8 +63,8 @@ defmodule Tackle.MultipleServicesTest do
       Support.cleanup!(ServiceB)
     end)
 
-    {:ok, _serviceA} = ServiceA.start_link()
-    {:ok, _serviceB} = ServiceB.start_link()
+    Support.start_consumer!(ServiceA)
+    Support.start_consumer!(ServiceB)
 
     MessageTrace.clear("serviceA")
     MessageTrace.clear("serviceB")

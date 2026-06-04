@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     name: Build and test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     env:
@@ -14,23 +14,23 @@ jobs:
       TZ: Europe/Berlin
       LANG: de_DE.UTF-8
       LC_ALL: de_DE.UTF-8
-      ELIXIR_VERSION: 1.14.2
-      ERLANG_VERSION: 25.2
+      ELIXIR_VERSION: 1.19.5
+      ERLANG_VERSION: 28.5
 
     services:
       amqp:
-        image: rabbitmq:3.8-management
+        image: rabbitmq:4.2-management
         ports: ["5672:5672", "15672:15672"]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Elixir
-        uses: erlef/setup-beam@00a8fc12438d0644faa1b21a55083cde9a543063
+        uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.ERLANG_VERSION }}
       - name: Restore Elixir dependencies cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: |
             deps

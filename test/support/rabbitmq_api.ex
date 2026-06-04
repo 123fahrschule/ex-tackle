@@ -1,20 +1,18 @@
 defmodule Support.RabbitmqAPI do
-  use Tesla
-
   @user Application.compile_env(:tackle, :rabbitmq_user)
   @password Application.compile_env(:tackle, :rabbitmq_password)
   @host Application.compile_env(:tackle, :rabbitmq_host)
-  @token "#{@user}:#{@password}" |> Base.encode64()
 
-  plug(Tesla.Middleware.BaseUrl, "http://#{@host}:15672/api")
-  plug(Tesla.Middleware.Headers, [{"authorization", "Basic #{@token}"}])
-  plug(Tesla.Middleware.JSON)
+  @client Req.new(
+            base_url: "http://#{@host}:15672/api",
+            auth: {:basic, "#{@user}:#{@password}"}
+          )
 
   def list_exchanges() do
-    get!("/exchanges")
+    Req.get!(@client, url: "/exchanges")
   end
 
   def list_queues() do
-    get!("/queues")
+    Req.get!(@client, url: "/queues")
   end
 end
