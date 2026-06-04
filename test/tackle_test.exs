@@ -1,3 +1,3 @@
 defmodule TackleTest do
-  use ExSpec
+  use ExUnit.Case
 end

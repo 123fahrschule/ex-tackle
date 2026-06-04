@@ -1,5 +1,5 @@
 defmodule Tackle.RepublishTest do
-  use ExSpec
+  use ExUnit.Case
 
   alias Support.MessageTrace
 
@@ -98,11 +98,11 @@ defmodule Tackle.RepublishTest do
       :timer.sleep(2000)
     end
 
-    it "consumes only two messages" do
+    test "consumes only two messages" do
       assert MessageTrace.content("fixed-service") == "Hi there!"
     end
 
-    it "leaves the remaining messages in the dead qeueue" do
+    test "leaves the remaining messages in the dead qeueue" do
       assert Support.queue_status(@dead_queue).message_count == 1
     end
   end

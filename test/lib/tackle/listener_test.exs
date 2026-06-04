@@ -1,5 +1,5 @@
 defmodule Tackle.ListenerTest do
-  use ExSpec
+  use ExUnit.Case
 
   defmodule TestConsumer do
     require Logger
@@ -26,13 +26,13 @@ defmodule Tackle.ListenerTest do
   end
 
   describe "consumer creation" do
-    it "connects to amqp server without errors" do
+    test "connects to amqp server without errors" do
       {response, _consumer} = TestConsumer.start_link()
 
       assert response == :ok
     end
 
-    it "creates a queue on the amqp server" do
+    test "creates a queue on the amqp server" do
       {_response, _consumer} = TestConsumer.start_link()
 
       :timer.sleep(1000)
@@ -44,7 +44,7 @@ defmodule Tackle.ListenerTest do
       assert Enum.member?(queues, "ex-tackle.test-service.test-messages.dead")
     end
 
-    it "creates an exchange on the amqp server" do
+    test "creates an exchange on the amqp server" do
       {_response, _consumer} = TestConsumer.start_link()
 
       :timer.sleep(1000)

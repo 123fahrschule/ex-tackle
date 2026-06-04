@@ -1,8 +1,8 @@
 defmodule Tackle.Consumer.TopologyTest do
-  use ExSpec
+  use ExUnit.Case
   alias Tackle.Consumer.Topology
 
-  it "knows all the queue and exchange names generated" do
+  test "knows all the queue and exchange names generated" do
     assert topology =
              Topology.new(
                service: "my_service",
@@ -22,7 +22,7 @@ defmodule Tackle.Consumer.TopologyTest do
     assert topology.dead_message_ttl == 50
   end
 
-  it "sets default retry options" do
+  test "sets default retry options" do
     assert topology =
              Topology.new(
                service: "my_service",
@@ -36,7 +36,7 @@ defmodule Tackle.Consumer.TopologyTest do
     assert topology.dead_message_ttl == 604_800 * 52
   end
 
-  it "can disable retries" do
+  test "can disable retries" do
     assert topology =
              Topology.new(
                service: "my_service",

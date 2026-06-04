@@ -1,5 +1,5 @@
 defmodule Tackle.BrokenConsumerSignalsTest do
-  use ExSpec
+  use ExUnit.Case
 
   alias Support.MessageTrace
 
@@ -42,7 +42,7 @@ defmodule Tackle.BrokenConsumerSignalsTest do
   end
 
   describe "healthy consumer" do
-    it "receives the message multiple times" do
+    test "receives the message multiple times" do
       Tackle.publish("Hi!", @publish_options)
 
       :timer.sleep(5000)

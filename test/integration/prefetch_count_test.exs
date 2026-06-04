@@ -1,5 +1,5 @@
 defmodule Tackle.ParallelMessageHandling_1_Test do
-  use ExSpec
+  use ExUnit.Case
 
   defmodule TestConsumer do
     @rabbitmq_url Application.compile_env(:tackle, :rabbitmq_url)
@@ -44,7 +44,7 @@ defmodule Tackle.ParallelMessageHandling_1_Test do
   end
 
   describe "parallel message handling" do
-    it "handles messages sequentialy", context do
+    test "handles messages sequentialy", context do
       sup = context[:sup]
       Tackle.publish(sup |> inspect, @publish_options)
       Tackle.publish(sup |> inspect, @publish_options)

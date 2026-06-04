@@ -1,5 +1,5 @@
 defmodule Tackle.SharedConnection.Test do
-  use ExSpec
+  use ExUnit.Case
   require Support
 
   @rabbitmq_url Application.compile_env(:tackle, :rabbitmq_url)
@@ -69,7 +69,7 @@ defmodule Tackle.SharedConnection.Test do
   end
 
   describe "shared connection" do
-    it "- reopen consumers" do
+    test "- reopen consumers" do
       {:ok, c1} = TestConsumer1.start_link()
       {:ok, c2} = TestConsumer2.start_link()
       Support.wait_consumer_ready(c1)

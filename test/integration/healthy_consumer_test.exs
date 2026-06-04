@@ -1,5 +1,5 @@
 defmodule Tackle.HealthyConsumerTest do
-  use ExSpec
+  use ExUnit.Case
 
   alias Support.MessageTrace
 
@@ -38,11 +38,11 @@ defmodule Tackle.HealthyConsumerTest do
   end
 
   describe "healthy consumer" do
-    it "knows the routing key" do
+    test "knows the routing key" do
       assert TestConsumer.routing_key() == "health"
     end
 
-    it "receives a published message on the exchange" do
+    test "receives a published message on the exchange" do
       Tackle.publish("Hi!", @publish_options)
 
       :timer.sleep(1000)
