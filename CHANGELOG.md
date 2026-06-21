@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Enhancements
+
+* Added an `on_retries_exhausted/3` consumer callback that is invoked exactly once, after the final failed attempt when the message is routed to the dead queue. Use it to report final errors (e.g. to Sentry) instead of comparing `current_attempt` with `max_number_of_attempts` inside `on_error/5`.
+
+### Fixed
+
+* Fixed the `max_number_of_attemts` typo (now `max_number_of_attempts`) in the `Tackle.Consumer.Behaviour` callback types and documentation.
+
 ## v1.1.1 - 2026-06-04
 
 ### Changed

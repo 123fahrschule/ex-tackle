@@ -232,21 +232,41 @@ defmodule Tackle.Consumer.Executor do
          error_reason
        ) do
     retry_count = Tackle.DelayedRetry.retry_count_from_headers(headers)
+    retries_exhausted? = retry_count >= state.topology.retry_limit
 
     # FIXME: try/rescue/catch stattdessen benutzen
     Task.start(fn ->
       current_attempt = retry_count + 1
-      max_number_of_attemts = state.topology.retry_limit + 1
-      {may_be_erlang_error, stacktrace} = error_reason
-      elixir_exception = Exception.normalize(:error, may_be_erlang_error, stacktrace)
+      max_number_of_attempts = state.topology.retry_limit + 1
+
+      # error_reason is usually `{reason, stacktrace}`, but a handler may exit
+      # with a bare term (e.g. `Process.exit(self(), :foo)`), so don't assume a
+      # 2-tuple shape here.
+      {elixir_exception, stacktrace} =
+        case error_reason do
+          {reason, trace} when is_list(trace) ->
+            {Exception.normalize(:error, reason, trace), trace}
+
+          other ->
+            {Exception.normalize(:error, other, []), []}
+        end
+
+      error = {elixir_exception, stacktrace}
 
       state.handler.on_error(
         payload,
         message_metadata,
-        {elixir_exception, stacktrace},
+        error,
         current_attempt,
-        max_number_of_attemts
+        max_number_of_attempts
       )
+
+      # Called once, when the last attempt failed and the message goes to the
+      # dead queue. Lets handlers report final errors (e.g. to Sentry) without
+      # having to compare current_attempt with max_number_of_attempts themselves.
+      if retries_exhausted? do
+        state.handler.on_retries_exhausted(payload, message_metadata, error)
+      end
     end)
 
     retry_message_options = [

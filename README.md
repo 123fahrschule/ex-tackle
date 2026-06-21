@@ -79,13 +79,24 @@ If your consumer cannot process a message and your consumer crashes, you can use
 the chance to e.g. log the error
 
 ``` elixir
-def on_error(payload, message_metadata, {error_reason, stacktrace}, current_attempt, max_number_of_attemts) do
+def on_error(payload, message_metadata, {error_reason, stacktrace}, current_attempt, max_number_of_attempts) do
     Logger.info("An error #{error_reason} occurred.")
   end
 ```
 
 Don't get confused: `max_number_of_attempts` is `retry_limit + 1` and not equal to `retry_limit`. The same applies to
 the `current_attempt` value.
+
+`on_error/5` is invoked for *every* failed attempt. If you only want to act once retries are exhausted (e.g. report the
+final error to Sentry), implement the `on_retries_exhausted/3` callback instead of comparing `current_attempt` with
+`max_number_of_attempts` yourself. It is called exactly once, right after the last attempt failed and the message is
+routed to the dead queue:
+
+``` elixir
+def on_retries_exhausted(payload, message_metadata, {error_reason, stacktrace}) do
+  Sentry.capture_exception(error_reason, stacktrace: stacktrace, extra: %{payload: payload})
+end
+```
 
 If you want to retry a message processing without raising an error, your consumer's `handle_message` can throw an
 `{:retry, retry_reason}`. Then the message gets pushed to the retry queue as usual.
