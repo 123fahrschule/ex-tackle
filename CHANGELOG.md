@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.2.0 - 2026-06-21
+
 ### Enhancements
 
 - Added an `on_retries_exhausted/3` consumer callback that is invoked exactly once, after the final failed attempt when the message is routed to the dead queue. Use it to report final errors (e.g. to Sentry) instead of comparing `current_attempt` with `max_number_of_attempts` inside `on_error/5`.
