@@ -18,13 +18,16 @@ jobs:
     working_directory: ~/ex-tackle
 
     steps:
-      # Das minimale hexpm-Image bringt kein git/SSH mit — wird für checkout
-      # und mix deps.get (HTTPS) benötigt.
+      # Das minimale hexpm-Image bringt kein git/SSH und keine de_DE-Locale mit.
+      # git/CA: für checkout & mix deps.get (HTTPS). locales: für LANG/LC_ALL=de_DE.UTF-8
+      # (sonst läuft die BEAM mit latin1-Encoding -> Elixir-Warnung).
       - run:
-          name: Install git & CA certificates
+          name: Install git, CA certificates & de_DE locale
           command: |
             apt-get update -qq
-            apt-get install -y --no-install-recommends git openssh-client ca-certificates
+            apt-get install -y --no-install-recommends git openssh-client ca-certificates locales
+            sed -i 's/^# *de_DE.UTF-8/de_DE.UTF-8/' /etc/locale.gen
+            locale-gen de_DE.UTF-8
 
       - checkout
 

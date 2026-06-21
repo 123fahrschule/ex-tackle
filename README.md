@@ -1,5 +1,7 @@
 # Tackle
 
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/123fahrschule/ex-tackle/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/123fahrschule/ex-tackle/tree/main)
+
 Tackles the problem of processing asynchronous jobs in reliable manner
 by relying on RabbitMQ.
 
