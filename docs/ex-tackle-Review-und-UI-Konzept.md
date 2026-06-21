@@ -1,7 +1,7 @@
 # ex-tackle — Architektur-Review & Konzept für ein zentrales Betriebs-UI
 
 **Erstellt:** 2026-06-21 (Neufassung gegen aktualisierten Code)
-**Reviewter Stand:** HEAD `3df3e5d` (Unreleased, nach v1.1.1) — enthält den heutigen Commit *„Fix typo in parameter name and add on_retries_exhausted callback"*
+**Reviewter Stand:** HEAD `3df3e5d` (Unreleased, nach v1.1.1) — enthält den heutigen Commit _„Fix typo in parameter name and add on_retries_exhausted callback"_
 **Betrachtete Nutzung:** `absence` (gepinnt auf `3b439f6` / v1.0.1) sowie flottenweiter Scan unter `~/fahrschule`
 **Rolle:** Architektur-/Code-Review mit Bewertung + Lösungskonzept
 
@@ -28,12 +28,12 @@ Gelesen wurden alle Kernmodule: `Tackle`, `Tackle.Consumer`, `Tackle.Consumer.Ex
 
 Kritikalität wird wie folgt eingestuft:
 
-| Stufe | Bedeutung |
-|---|---|
-| **Kritisch** | Kann Ausfall, Crash-Loop oder unbemerkten Datenverlust verursachen. |
-| **Hoch** | Ernsthaftes Risiko unter Last oder bei Konfig-/Deploy-Änderungen; zeitnah beheben. |
-| **Mittel** | Korrektheits-, Wartbarkeits- oder Betriebsrisiko; situativ relevant. |
-| **Niedrig** | Code-Smell / Härtung / Komfort; geringe akute Gefahr. |
+| Stufe        | Bedeutung                                                                          |
+| ------------ | ---------------------------------------------------------------------------------- |
+| **Kritisch** | Kann Ausfall, Crash-Loop oder unbemerkten Datenverlust verursachen.                |
+| **Hoch**     | Ernsthaftes Risiko unter Last oder bei Konfig-/Deploy-Änderungen; zeitnah beheben. |
+| **Mittel**   | Korrektheits-, Wartbarkeits- oder Betriebsrisiko; situativ relevant.               |
+| **Niedrig**  | Code-Smell / Härtung / Komfort; geringe akute Gefahr.                              |
 
 ---
 
@@ -41,7 +41,7 @@ Kritikalität wird wie folgt eingestuft:
 
 Diese Beobachtungen untermauern mehrere Befunde und die Motivation fürs UI:
 
-- **Eigener Wrapper nötig.** `absence` kapselt `Tackle.Consumer` in `Absence.EventConsumer` mit der Begründung im Moduldoc: *„Tackle consumer abstraction, so we can log errors in the consumers and parse the message."* Der Wrapper macht `Jason.decode!`, Logging und Metadaten-Extraktion — genau das, was die Bibliothek selbst nicht anbietet (siehe Befund 13). Es existiert sogar ein `handle_message/2`, das Tackle **nie aufruft** (der Executor ruft nur `handle_message/1`).
+- **Eigener Wrapper nötig.** `absence` kapselt `Tackle.Consumer` in `Absence.EventConsumer` mit der Begründung im Moduldoc: _„Tackle consumer abstraction, so we can log errors in the consumers and parse the message."_ Der Wrapper macht `Jason.decode!`, Logging und Metadaten-Extraktion — genau das, was die Bibliothek selbst nicht anbietet (siehe Befund 13). Es existiert sogar ein `handle_message/2`, das Tackle **nie aufruft** (der Executor ruft nur `handle_message/1`).
 - **`on_error/5`-Off-by-one-Workaround — jetzt überflüssig.** Der `absence`-Wrapper nutzt einen Guard `current_retry >= max_number_of_attempts - 1`, um „letzter Versuch" zu erkennen (mit erklärendem Kommentar, weil die Zähl-Semantik verwirrt). Genau dafür gibt es seit Commit `3df3e5d` jetzt `on_retries_exhausted/3` — der Wrapper kann darauf umgestellt werden und den fehleranfälligen Vergleich loswerden.
 - **Publisher-Connection wird wiederverwendet — aber nur, weil `absence` die undokumentierte Option kennt.** `Shared.RabbitMQEventPublisher` setzt `publisher_connection_name: "Absence Publisher"`, Consumer nutzen `connection_id: "Absence Consumers"`. Die Option ist in der README nicht dokumentiert; ohne sie öffnet jeder `Tackle.publish`-Aufruf eine neue Verbindung (Befund 4).
 - **`exchange_type: :topic` wird in praktisch jedem Service manuell gesetzt** (10 Services setzen es aktiv; in ex-tackle selbst steht es nur als auskommentierter Default). Funktioniert heute, weil alle konsistent sind — aber der Bibliotheks-Default ist `:direct`, und die Einstellung ist global + zur Compile-Zeit fixiert (Befund 6). Ein einziger Service, der die Zeile vergisst, erzeugt `:direct`-Exchanges und damit Broker-Konflikte.
@@ -53,69 +53,70 @@ Diese Beobachtungen untermauern mehrere Befunde und die Motivation fürs UI:
 
 ### 4.1 Übersicht
 
-| Nr | Befund | Kategorie | Kritikalität |
-|---|---|---|---|
-| 1 | Topologie-Redeklaration mit abweichenden Argumenten → `PRECONDITION_FAILED` → Crash-/Restart-Schleife | Robustheit | **Hoch** (eskaliert zu Kritisch bei Konfig-Deploys) |
-| 2 | Republish verliert Header & Message-Properties | Datenintegrität | **Hoch** |
-| 3 | Dead-Queue ohne Dead-Letter-Exchange + TTL → stiller Datenverlust | Datenverlust | **Hoch** |
-| 4 | Neue Connection (+Exchange-Deklaration) pro Publish/Retry | Performance/Ressourcen | **Hoch** |
-| 5 | Delay-Queue-Name an `retry_delay` gekoppelt → verwaiste Queues bei Konfig-Änderung | Betrieb | **Hoch** |
-| 6 | `exchange_type` global & zur Compile-Zeit fixiert | Konfiguration | **Hoch** |
-| 7 | Pro-Message-`spawn` ohne Timeout, Backpressure oder Supervision | Robustheit | **Mittel–Hoch** |
-| 8 | `retry_dead_messages` erfordert laufenden Executor (Control-Plane an Data-Plane gekoppelt) | Architektur | **Mittel** |
-| 9 | `republish` ist Fire-and-forget-`cast` ohne Ergebnis/Fehlerbehandlung | Betrieb | **Mittel** |
-| 10 | `nack(requeue:false)` nach manuellem Republish ohne Publisher-Confirms → Duplikat-/Verlust-Fenster | Datenintegrität | **Mittel** |
-| 11 | `struct/2` umgeht `@enforce_keys`; keine Options-Validierung → stille Fehlkonfiguration | Robustheit | **Mittel** |
-| 12 | `error_reason`-Pattern-Match im `Task.start`-Block → Fehler-Callbacks werden bei untypischem Exit still übersprungen | Beobachtbarkeit | **Niedrig–Mittel** |
-| 13 | `handle_message/1` ohne Metadaten/Headers; Payload immer String, kein Content-Type | API-Design | **Mittel** |
-| 14 | `on_error`/`on_retries_exhausted` laufen in unüberwachtem `Task` — Ausnahmen verschluckt, Reihenfolgen-Risiko | Beobachtbarkeit | **Mittel** |
-| 15 | Sammelposten Härtung: unsichere Verbindung in prod nur geloggt; Connection-Agent-Engpass; kein Reconnect-Backoff; keine Telemetrie; Versions-Drift | Härtung/Wartung | **Niedrig–Mittel** |
+| Nr  | Befund                                                                                                                                             | Kategorie              | Kritikalität                                        |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------------- |
+| 1   | Topologie-Redeklaration mit abweichenden Argumenten → `PRECONDITION_FAILED` → Crash-/Restart-Schleife                                              | Robustheit             | **Hoch** (eskaliert zu Kritisch bei Konfig-Deploys) |
+| 2   | Republish verliert Header & Message-Properties                                                                                                     | Datenintegrität        | **Hoch**                                            |
+| 3   | Dead-Queue ohne Dead-Letter-Exchange + TTL → stiller Datenverlust                                                                                  | Datenverlust           | **Hoch**                                            |
+| 4   | Neue Connection (+Exchange-Deklaration) pro Publish/Retry                                                                                          | Performance/Ressourcen | **Hoch**                                            |
+| 5   | Delay-Queue-Name an `retry_delay` gekoppelt → verwaiste Queues bei Konfig-Änderung                                                                 | Betrieb                | **Hoch**                                            |
+| 6   | `exchange_type` global & zur Compile-Zeit fixiert                                                                                                  | Konfiguration          | **Hoch**                                            |
+| 7   | Pro-Message-`spawn` ohne Timeout, Backpressure oder Supervision                                                                                    | Robustheit             | **Mittel–Hoch**                                     |
+| 8   | `retry_dead_messages` erfordert laufenden Executor (Control-Plane an Data-Plane gekoppelt)                                                         | Architektur            | **Mittel**                                          |
+| 9   | `republish` ist Fire-and-forget-`cast` ohne Ergebnis/Fehlerbehandlung                                                                              | Betrieb                | **Mittel**                                          |
+| 10  | `nack(requeue:false)` nach manuellem Republish ohne Publisher-Confirms → Duplikat-/Verlust-Fenster                                                 | Datenintegrität        | **Mittel**                                          |
+| 11  | `struct/2` umgeht `@enforce_keys`; keine Options-Validierung → stille Fehlkonfiguration                                                            | Robustheit             | **Mittel**                                          |
+| 12  | `error_reason`-Pattern-Match im `Task.start`-Block → Fehler-Callbacks werden bei untypischem Exit still übersprungen                               | Beobachtbarkeit        | **Niedrig–Mittel**                                  |
+| 13  | `handle_message/1` ohne Metadaten/Headers; Payload immer String, kein Content-Type                                                                 | API-Design             | **Mittel**                                          |
+| 14  | `on_error`/`on_retries_exhausted` laufen in unüberwachtem `Task` — Ausnahmen verschluckt, Reihenfolgen-Risiko                                      | Beobachtbarkeit        | **Mittel**                                          |
+| 15  | Sammelposten Härtung: unsichere Verbindung in prod nur geloggt; Connection-Agent-Engpass; kein Reconnect-Backoff; keine Telemetrie; Versions-Drift | Härtung/Wartung        | **Niedrig–Mittel**                                  |
 
 ### 4.2 Details
 
 **1. Topologie-Redeklaration mit abweichenden Argumenten → Crash-/Restart-Schleife — Hoch**
-`Topology.setup!/2` deklariert Queues/Exchanges bei jedem Start mit festen Argumenten (`x-message-ttl`, DLX, `durable`). Existiert eine Queue bereits mit **anderen** Argumenten (z. B. nach Änderung von `retry_delay`/`dead_message_ttl` oder Typwechsel eines Exchanges), antwortet der Broker mit `406 PRECONDITION_FAILED`. `Topology.setup!` wird **innerhalb** des `with`-Blocks aufgerufen, nachdem Verbindung/Channel geöffnet sind (`executor.ex:57`) — der Fehler wird daher **nicht** vom `else`-Zweig abgefangen, sondern lässt `{:ok, _} = AMQP.Queue.declare(...)` (`queue.ex:13`) als MatchError fliegen. Der Executor stürzt ab, der Supervisor startet ihn neu, der nächste Versuch scheitert identisch → **Crash-/Restart-Schleife bis zur Supervisor-Eskalation** (`max_restarts`), die größere Teile des Aufsichtsbaums mitreißen kann. Es gibt keine Erkennung „existiert, aber divergent" und keine Migration. *Empfehlung:* Argumente passiv prüfen (`Queue.declare` `passive: true`) bzw. Topologie-Versionierung/Migration; bei Divergenz klare, einmalige Fehlermeldung statt stiller Schleife.
+`Topology.setup!/2` deklariert Queues/Exchanges bei jedem Start mit festen Argumenten (`x-message-ttl`, DLX, `durable`). Existiert eine Queue bereits mit **anderen** Argumenten (z. B. nach Änderung von `retry_delay`/`dead_message_ttl` oder Typwechsel eines Exchanges), antwortet der Broker mit `406 PRECONDITION_FAILED`. `Topology.setup!` wird **innerhalb** des `with`-Blocks aufgerufen, nachdem Verbindung/Channel geöffnet sind (`executor.ex:57`) — der Fehler wird daher **nicht** vom `else`-Zweig abgefangen, sondern lässt `{:ok, _} = AMQP.Queue.declare(...)` (`queue.ex:13`) als MatchError fliegen. Der Executor stürzt ab, der Supervisor startet ihn neu, der nächste Versuch scheitert identisch → **Crash-/Restart-Schleife bis zur Supervisor-Eskalation** (`max_restarts`), die größere Teile des Aufsichtsbaums mitreißen kann. Es gibt keine Erkennung „existiert, aber divergent" und keine Migration. _Empfehlung:_ Argumente passiv prüfen (`Queue.declare` `passive: true`) bzw. Topologie-Versionierung/Migration; bei Divergenz klare, einmalige Fehlermeldung statt stiller Schleife.
 
 **2. Republish verliert Header & Properties — Hoch**
-`Republisher.republish_one_message/4` liest via `AMQP.Basic.get` nur den **Payload-Body** und published ihn mit fest verdrahtetem `persistent: true` neu (`republisher.ex:19-21`). Alle ursprünglichen Header und Properties gehen verloren: `retry_count`, `content_type`, `correlation_id`, `message_id`, `timestamp` etc. Bei `absence` tragen Events fachliche Metadaten (`causation_id`, `correlation_id`) — diese können bei einem Rescue aus der Dead-Queue verloren gehen oder Folgeverarbeitung verfälschen. *Empfehlung:* `meta` aus `Basic.get` übernehmen und Properties/Header beim Republish erhalten.
+`Republisher.republish_one_message/4` liest via `AMQP.Basic.get` nur den **Payload-Body** und published ihn mit fest verdrahtetem `persistent: true` neu (`republisher.ex:19-21`). Alle ursprünglichen Header und Properties gehen verloren: `retry_count`, `content_type`, `correlation_id`, `message_id`, `timestamp` etc. Bei `absence` tragen Events fachliche Metadaten (`causation_id`, `correlation_id`) — diese können bei einem Rescue aus der Dead-Queue verloren gehen oder Folgeverarbeitung verfälschen. _Empfehlung:_ `meta` aus `Basic.get` übernehmen und Properties/Header beim Republish erhalten.
 
 **3. Dead-Queue ohne Dead-Letter-Exchange + TTL → stiller Datenverlust — Hoch**
-Die Dead-Queue wird nur mit `x-message-ttl` angelegt, **ohne** `x-dead-letter-exchange` (`queue.ex:35-45`). Default-TTL ist ~1 Jahr (`topology.ex:3`). Nach Ablauf werden Dead-Messages vom Broker **endgültig verworfen** — ohne Ziel, ohne Alarm. Dead-Messages sind per Definition die, die man am wenigsten verlieren will. Der neue `on_retries_exhausted/3`-Callback eignet sich gut zum **Alarmieren** beim Eintreffen in der Dead-Queue, ändert aber nichts am stillen Ablaufen danach. *Empfehlung:* Entweder kein TTL auf der Dead-Queue, oder ein „final graveyard"-DLX, in den abgelaufene Dead-Messages fallen, plus Monitoring (das UI deckt das ab).
+Die Dead-Queue wird nur mit `x-message-ttl` angelegt, **ohne** `x-dead-letter-exchange` (`queue.ex:35-45`). Default-TTL ist ~1 Jahr (`topology.ex:3`). Nach Ablauf werden Dead-Messages vom Broker **endgültig verworfen** — ohne Ziel, ohne Alarm. Dead-Messages sind per Definition die, die man am wenigsten verlieren will. Der neue `on_retries_exhausted/3`-Callback eignet sich gut zum **Alarmieren** beim Eintreffen in der Dead-Queue, ändert aber nichts am stillen Ablaufen danach. _Empfehlung:_ Entweder kein TTL auf der Dead-Queue, oder ein „final graveyard"-DLX, in den abgelaufene Dead-Messages fallen, plus Monitoring (das UI deckt das ab).
 
 **4. Neue Connection (+Exchange-Deklaration) pro Publish/Retry — Hoch**
-`Tackle.publish/2` und `DelayedRetry.publish/4` laufen über `Tackle.execute(_, :default, _)`, das pro Aufruf eine **komplett neue AMQP-Verbindung** öffnet und wieder schließt (`tackle.ex:40-50`, `delayed_retry.ex:10-14`); zusätzlich wird bei jedem Publish der Exchange neu deklariert (`tackle.ex:28-31`). Pro Nachricht entstehen so TCP-/AMQP-/ggf. TLS-Handshakes — teuer unter Last und bei Fehlerstürmen (jeder fehlgeschlagene Consume erzeugt einen Retry-Publish mit eigener Verbindung). `absence` mildert das für Publishes über die (undokumentierte) Option `publisher_connection_name`; der **Retry-Pfad im Executor nutzt aber weiterhin `:default`** und damit pro Retry eine neue Verbindung. *Empfehlung:* Langlebige Publisher-/Retry-Connection bzw. -Channel-Pool; `publisher_connection_name` dokumentieren und als Default vorsehen; Exchange-Deklaration nicht bei jedem Publish.
+`Tackle.publish/2` und `DelayedRetry.publish/4` laufen über `Tackle.execute(_, :default, _)`, das pro Aufruf eine **komplett neue AMQP-Verbindung** öffnet und wieder schließt (`tackle.ex:40-50`, `delayed_retry.ex:10-14`); zusätzlich wird bei jedem Publish der Exchange neu deklariert (`tackle.ex:28-31`). Pro Nachricht entstehen so TCP-/AMQP-/ggf. TLS-Handshakes — teuer unter Last und bei Fehlerstürmen (jeder fehlgeschlagene Consume erzeugt einen Retry-Publish mit eigener Verbindung). `absence` mildert das für Publishes über die (undokumentierte) Option `publisher_connection_name`; der **Retry-Pfad im Executor nutzt aber weiterhin `:default`** und damit pro Retry eine neue Verbindung. _Empfehlung:_ Langlebige Publisher-/Retry-Connection bzw. -Channel-Pool; `publisher_connection_name` dokumentieren und als Default vorsehen; Exchange-Deklaration nicht bei jedem Publish.
 
 **5. Delay-Queue-Name an `retry_delay` gekoppelt → verwaiste Queues — Hoch**
-Der Delay-Queue-Name enthält den Delay-Wert: `"#{queue}.delay.#{retry_delay}"` (`topology.ex:104`). Ändert man `retry_delay`, entsteht beim nächsten Start eine **neue** Delay-Queue; die alte bleibt zurück — gebunden, ggf. mit Nachrichten, die nach altem Delay weiterlaufen. Genau diese „verwaisten Queues" willst du im UI sehen. Zusätzlich wird die Delay-Queue **auch bei `retry_limit: 0` angelegt** (FIXME in `topology.ex:53`), obwohl sie nie genutzt wird. *Empfehlung:* Delay über Header/`x-delay` statt über den Queue-Namen steuern; Altbestände erkennen/migrieren (UI).
+Der Delay-Queue-Name enthält den Delay-Wert: `"#{queue}.delay.#{retry_delay}"` (`topology.ex:104`). Ändert man `retry_delay`, entsteht beim nächsten Start eine **neue** Delay-Queue; die alte bleibt zurück — gebunden, ggf. mit Nachrichten, die nach altem Delay weiterlaufen. Genau diese „verwaisten Queues" willst du im UI sehen. Zusätzlich wird die Delay-Queue **auch bei `retry_limit: 0` angelegt** (FIXME in `topology.ex:53`), obwohl sie nie genutzt wird. _Empfehlung:_ Delay über Header/`x-delay` statt über den Queue-Namen steuern; Altbestände erkennen/migrieren (UI).
 
 **6. `exchange_type` global & zur Compile-Zeit fixiert — Hoch**
-`@default_exchange_type Application.compile_env(:tackle, :exchange_type, :direct)` (`exchange.ex:7`, inkl. FIXME) ist **global** und **zur Compile-Zeit** gebunden. Folgen: (a) Änderung erfordert Neukompilieren der Dependency; (b) keine Wahl je Consumer/Publisher; (c) Default `:direct` weicht von der gelebten Praxis (`:topic`) ab — vergisst ein Service die Konfig-Zeile, deklariert er denselben Exchange als `:direct` und löst beim Mitnutzer `PRECONDITION_FAILED` aus. Heute sind alle Services konsistent `:topic`, aber die Korrektheit hängt an einer leicht vergessbaren globalen Zeile. *Empfehlung:* Exchange-Typ als reguläre (Laufzeit-)Option pro Topologie.
+`@default_exchange_type Application.compile_env(:tackle, :exchange_type, :direct)` (`exchange.ex:7`, inkl. FIXME) ist **global** und **zur Compile-Zeit** gebunden. Folgen: (a) Änderung erfordert Neukompilieren der Dependency; (b) keine Wahl je Consumer/Publisher; (c) Default `:direct` weicht von der gelebten Praxis (`:topic`) ab — vergisst ein Service die Konfig-Zeile, deklariert er denselben Exchange als `:direct` und löst beim Mitnutzer `PRECONDITION_FAILED` aus. Heute sind alle Services konsistent `:topic`, aber die Korrektheit hängt an einer leicht vergessbaren globalen Zeile. _Empfehlung:_ Exchange-Typ als reguläre (Laufzeit-)Option pro Topologie.
 
 **7. Pro-Message-`spawn` ohne Timeout, Backpressure oder Supervision — Mittel–Hoch**
-Pro eingehender Nachricht wird ein ungebundener, unüberwachter Prozess gestartet (`spawn` in `executor.ex:136`), der wiederum `spawn_link` nutzt und in einem `receive` **ohne Timeout** blockiert (`executor.ex:180-207`). Hängt `handle_message` (z. B. externer Call ohne Timeout), bleibt die Nachricht **für immer** unbestätigt und der Prozess leakt. Bei `prefetch_count > 1` entstehen beliebig viele solcher Prozesse ohne Begrenzung. *Empfehlung:* `Task.Supervisor` mit `Task.async`/`yield` + konfigurierbarem Timeout; gebundene Nebenläufigkeit.
+Pro eingehender Nachricht wird ein ungebundener, unüberwachter Prozess gestartet (`spawn` in `executor.ex:136`), der wiederum `spawn_link` nutzt und in einem `receive` **ohne Timeout** blockiert (`executor.ex:180-207`). Hängt `handle_message` (z. B. externer Call ohne Timeout), bleibt die Nachricht **für immer** unbestätigt und der Prozess leakt. Bei `prefetch_count > 1` entstehen beliebig viele solcher Prozesse ohne Begrenzung. _Empfehlung:_ `Task.Supervisor` mit `Task.async`/`yield` + konfigurierbarem Timeout; gebundene Nebenläufigkeit.
 
-**8. `retry_dead_messages` erfordert laufenden Executor — Mittel** *(dein Beispiel)*
-`MyConsumer.retry_dead_messages/1` → `Executor.republish_dead_messages/2` → `GenServer.cast(name, …)` (`consumer.ex:78-81`, FIXME `consumer.ex:79` „Muss nicht zum Executor gehen…"). Das eigentliche Zurückschieben (`Republisher.republish/5`, vom Executor via `handle_cast` aufgerufen, `executor.ex:289`) braucht aber nur **Topologie + URL** — keinen laufenden Consumer. Konsequenz: Man muss den Executor-Prozess laufen lassen, um Dead-Messages zurückzuschieben, obwohl reine Topologie genügt; und das Republish läuft **im** Consumer-Prozess (blockiert Konsum). *Empfehlung:* Republish/Inspect als reine, topologie-basierte Funktionen (Control-Plane) lösen — Fundament für das UI (siehe 5.2).
+**8. `retry_dead_messages` erfordert laufenden Executor — Mittel** _(dein Beispiel)_
+`MyConsumer.retry_dead_messages/1` → `Executor.republish_dead_messages/2` → `GenServer.cast(name, …)` (`consumer.ex:78-81`, FIXME `consumer.ex:79` „Muss nicht zum Executor gehen…"). Das eigentliche Zurückschieben (`Republisher.republish/5`, vom Executor via `handle_cast` aufgerufen, `executor.ex:289`) braucht aber nur **Topologie + URL** — keinen laufenden Consumer. Konsequenz: Man muss den Executor-Prozess laufen lassen, um Dead-Messages zurückzuschieben, obwohl reine Topologie genügt; und das Republish läuft **im** Consumer-Prozess (blockiert Konsum). _Empfehlung:_ Republish/Inspect als reine, topologie-basierte Funktionen (Control-Plane) lösen — Fundament für das UI (siehe 5.2).
 
 **9. `republish` ist Fire-and-forget ohne Ergebnis — Mittel**
-`GenServer.cast` liefert kein Resultat (`executor.ex:7-9`, `executor.ex:280-290`). Der Aufrufer erfährt nicht, **wie viele** Nachrichten tatsächlich verschoben wurden oder ob ein Fehler auftrat. Sind weniger Nachrichten in der Dead-Queue als `how_many`, passiert für den Rest still nichts. *Empfehlung:* synchrones `call` mit Rückgabe `{moved, errors}`.
+`GenServer.cast` liefert kein Resultat (`executor.ex:7-9`, `executor.ex:280-290`). Der Aufrufer erfährt nicht, **wie viele** Nachrichten tatsächlich verschoben wurden oder ob ein Fehler auftrat. Sind weniger Nachrichten in der Dead-Queue als `how_many`, passiert für den Rest still nichts. _Empfehlung:_ synchrones `call` mit Rückgabe `{moved, errors}`.
 
 **10. `nack(requeue:false)` nach manuellem Republish ohne Confirms — Mittel**
-Im Fehlerpfad wird erst manuell in Delay-/Dead-Queue published und **danach** das Original `nack`-t (`executor.ex:130-134`, `executor.ex:262-285`). Beides ist nicht atomar und nutzt **keine Publisher-Confirms** (zudem über separate Verbindung). Stirbt der Prozess dazwischen, bleibt das Original unbestätigt → Redelivery → **Duplikat** (eine Kopie in Delay-Queue + erneute Zustellung). Ist der Ziel-Publish nicht routbar, wird er trotzdem als erfolgreich angesehen → **Verlust**. *Empfehlung:* Publisher-Confirms; Reihenfolge/Idempotenz absichern.
+Im Fehlerpfad wird erst manuell in Delay-/Dead-Queue published und **danach** das Original `nack`-t (`executor.ex:130-134`, `executor.ex:262-285`). Beides ist nicht atomar und nutzt **keine Publisher-Confirms** (zudem über separate Verbindung). Stirbt der Prozess dazwischen, bleibt das Original unbestätigt → Redelivery → **Duplikat** (eine Kopie in Delay-Queue + erneute Zustellung). Ist der Ziel-Publish nicht routbar, wird er trotzdem als erfolgreich angesehen → **Verlust**. _Empfehlung:_ Publisher-Confirms; Reihenfolge/Idempotenz absichern.
 
 **11. `struct/2` umgeht `@enforce_keys`; keine Options-Validierung — Mittel**
-`State.configure!` baut den State mit `struct(__MODULE__, options)` (`state.ex:22-26`). `struct/2` **ignoriert** `@enforce_keys` und unbekannte Keys still. Tippfehler wie `prefetch_count`/`pre_fetch_count` oder `retry_limit` werden kommentarlos verworfen → der Consumer läuft mit Defaults statt der gewünschten Konfiguration; fehlende Pflichtwerte fliegen erst später als kryptischer Folgefehler auf. *Empfehlung:* `struct!/2` + explizite Options-Validierung mit klaren Fehlern (z. B. `NimbleOptions`).
+`State.configure!` baut den State mit `struct(__MODULE__, options)` (`state.ex:22-26`). `struct/2` **ignoriert** `@enforce_keys` und unbekannte Keys still. Tippfehler wie `prefetch_count`/`pre_fetch_count` oder `retry_limit` werden kommentarlos verworfen → der Consumer läuft mit Defaults statt der gewünschten Konfiguration; fehlende Pflichtwerte fliegen erst später als kryptischer Folgefehler auf. _Empfehlung:_ `struct!/2` + explizite Options-Validierung mit klaren Fehlern (z. B. `NimbleOptions`).
 
 **12. `error_reason`-Pattern-Match im `Task.start`-Block → Fehler-Callbacks still übersprungen — Niedrig–Mittel**
-In `retry/4` wird hart destrukturiert: `{may_be_erlang_error, stacktrace} = error_reason` (`executor.ex:241`). Diese Zeile steht **innerhalb** des `Task.start`-Blocks (`executor.ex:238`). Beendet sich der Handler-Prozess mit einem Nicht-2-Tupel-Reason (z. B. `exit(:foo)`), schlägt der Match fehl → **nur der unverlinkte Task stürzt ab** (als Crash-Log sichtbar). Der Executor läuft weiter und die Nachricht wird korrekt in Delay/Dead geroutet — aber `on_error/5` **und** `on_retries_exhausted/3` werden für diesen Fall **stillschweigend übersprungen** (Fehler-Reporting verloren). *Empfehlung:* defensiv matchen (`case`/Fallback) statt strikter Destrukturierung; Callback-Aufruf vom Match entkoppeln.
+In `retry/4` wird hart destrukturiert: `{may_be_erlang_error, stacktrace} = error_reason` (`executor.ex:241`). Diese Zeile steht **innerhalb** des `Task.start`-Blocks (`executor.ex:238`). Beendet sich der Handler-Prozess mit einem Nicht-2-Tupel-Reason (z. B. `exit(:foo)`), schlägt der Match fehl → **nur der unverlinkte Task stürzt ab** (als Crash-Log sichtbar). Der Executor läuft weiter und die Nachricht wird korrekt in Delay/Dead geroutet — aber `on_error/5` **und** `on_retries_exhausted/3` werden für diesen Fall **stillschweigend übersprungen** (Fehler-Reporting verloren). _Empfehlung:_ defensiv matchen (`case`/Fallback) statt strikter Destrukturierung; Callback-Aufruf vom Match entkoppeln.
 
 **13. `handle_message/1` ohne Metadaten; Payload immer String — Mittel**
-Der Executor ruft ausschließlich `handle_message(payload)` mit dem rohen String (`executor.ex:123-128`). Routing-Key, Exchange, Header, `redelivered`, Properties und Content-Type sind im Handler **nicht** verfügbar. Genau deshalb baut `absence` einen Wrapper (JSON-Decode, Metadaten) und ein nie aufgerufenes `handle_message/2`. *Empfehlung:* optionales `handle_message/2` mit Metadaten offiziell unterstützen; Content-Type-abhängige (De-)Serialisierung anbieten.
+Der Executor ruft ausschließlich `handle_message(payload)` mit dem rohen String (`executor.ex:123-128`). Routing-Key, Exchange, Header, `redelivered`, Properties und Content-Type sind im Handler **nicht** verfügbar. Genau deshalb baut `absence` einen Wrapper (JSON-Decode, Metadaten) und ein nie aufgerufenes `handle_message/2`. _Empfehlung:_ optionales `handle_message/2` mit Metadaten offiziell unterstützen; Content-Type-abhängige (De-)Serialisierung anbieten.
 
 **14. `on_error`/`on_retries_exhausted` in unüberwachtem `Task` — Mittel**
-Beide Fehler-Callbacks werden im selben `Task.start`-Block „fire-and-forget" aufgerufen (`executor.ex:237-261`). Probleme: (a) Wirft ein Callback, stirbt nur ein **unverlinkter** Task — das Reporting scheitert **unbemerkt** (nur Crash-Log). (b) `on_error` und `on_retries_exhausted` laufen **sequenziell im selben Task**: Wirft `on_error`, wird `on_retries_exhausted` **nie** erreicht — ausgerechnet beim finalen Fehler, den man melden will. (c) Der Callback-Pfad läuft asynchron/ungeordnet zur Retry-Publikation. Der neue `on_retries_exhausted/3` ist fachlich die richtige Ergänzung (siehe Abschnitt 3), erbt aber dieselbe Ausführungs-Schwäche. *Empfehlung:* Callbacks überwacht ausführen, Ausnahmen je Callback fangen und mindestens loggen; `on_retries_exhausted` unabhängig von `on_error` aufrufen.
+Beide Fehler-Callbacks werden im selben `Task.start`-Block „fire-and-forget" aufgerufen (`executor.ex:237-261`). Probleme: (a) Wirft ein Callback, stirbt nur ein **unverlinkter** Task — das Reporting scheitert **unbemerkt** (nur Crash-Log). (b) `on_error` und `on_retries_exhausted` laufen **sequenziell im selben Task**: Wirft `on_error`, wird `on_retries_exhausted` **nie** erreicht — ausgerechnet beim finalen Fehler, den man melden will. (c) Der Callback-Pfad läuft asynchron/ungeordnet zur Retry-Publikation. Der neue `on_retries_exhausted/3` ist fachlich die richtige Ergänzung (siehe Abschnitt 3), erbt aber dieselbe Ausführungs-Schwäche. _Empfehlung:_ Callbacks überwacht ausführen, Ausnahmen je Callback fangen und mindestens loggen; `on_retries_exhausted` unabhängig von `on_error` aufrufen.
 
 **15. Sammelposten Härtung — Niedrig–Mittel**
+
 - **Unsichere Verbindung in prod** wird nur **geloggt**, nicht verweigert (`connection.ex:121-126`) — `amqp://` in Produktion sollte hart abgelehnt werden können.
 - **Connection-Agent als Engpass:** alle Verbindungsaufbauten serialisieren über `Agent.get_and_update` (`connection.ex:40-75`); gecachte Verbindungen werden nicht via Monitor überwacht, sondern nur lazy per `Process.alive?` geprüft; `reset/0` ruft `Agent.update` redundant in jeder Iteration (`connection.ex:81-89`).
 - **Kein Reconnect-Backoff/Jitter:** festes `reconnect_interval: 1_000` (`state.ex:17`) → Thundering-Herd bei Broker-Ausfall über viele Consumer.
@@ -154,15 +155,15 @@ Kein zusätzlicher Datenspeicher nötig (Quelle ist Broker + Modul-Introspektion
 
 ### 5.4 Problemerkennung (Detektoren)
 
-| Detektor | Quelle | Adressiert Befund |
-|---|---|---|
-| Dead-Queue mit `messages > 0` (+ Payload-Inspektion) | A×B | 2, 3 |
-| Verwaiste Queue: passt aufs Tackle-Namensschema, aber kein zugehöriges Consumer-Modul (z. B. alte `*.delay.<N>`, Queue gelöschter Consumer) | A×B | 5 |
-| Queue ohne aktive Consumer (`consumers = 0`), obwohl Soll-Consumer existiert | A×B | — (Betrieb) |
-| Verwaister Exchange (keine Bindings / kein Consumer) | A×B | 5 |
-| Topologie-Drift: Broker-Argumente ≠ Soll (`x-message-ttl`, DLX, Typ) → „Redeklaration würde scheitern" | A×B | 1, 6 |
-| Retry-/Dead-Raten-Anomalie (Spikes in Delay/Dead) | B | 7 |
-| Unsichere Verbindung / fehlendes TLS (optional) | A | 15 |
+| Detektor                                                                                                                                    | Quelle | Adressiert Befund |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----------------- |
+| Dead-Queue mit `messages > 0` (+ Payload-Inspektion)                                                                                        | A×B    | 2, 3              |
+| Verwaiste Queue: passt aufs Tackle-Namensschema, aber kein zugehöriges Consumer-Modul (z. B. alte `*.delay.<N>`, Queue gelöschter Consumer) | A×B    | 5                 |
+| Queue ohne aktive Consumer (`consumers = 0`), obwohl Soll-Consumer existiert                                                                | A×B    | — (Betrieb)       |
+| Verwaister Exchange (keine Bindings / kein Consumer)                                                                                        | A×B    | 5                 |
+| Topologie-Drift: Broker-Argumente ≠ Soll (`x-message-ttl`, DLX, Typ) → „Redeklaration würde scheitern"                                      | A×B    | 1, 6              |
+| Retry-/Dead-Raten-Anomalie (Spikes in Delay/Dead)                                                                                           | B      | 7                 |
+| Unsichere Verbindung / fehlendes TLS (optional)                                                                                             | A      | 15                |
 
 ### 5.5 Screens & Wireframes
 
@@ -298,4 +299,4 @@ Empfehlung: **A**, weil sie ohne zusätzliche Dienste auskommt und die Service-I
 
 - Das Konzept geht davon aus, dass die Management-HTTP-API des Brokers (LavinMQ ist hier weitgehend RabbitMQ-kompatibel) erreichbar und für die Services nutzbar ist — das in `test/support/rabbitmq_api.ex` genutzte Muster bestätigt das. Die genauen Endpunkte/Capabilities für **zerstörungsfreies Peeken** und **Publish mit Properties** sollten gegen die konkrete LavinMQ-Version verifiziert werden.
 - Stand der Analyse ist HEAD `3df3e5d`; die meisten produktiven Services laufen auf älteren Ständen (v1.0.1) und kennen `on_retries_exhausted/3` noch nicht. Vor Umsetzung lohnt ein kurzer Abgleich, welche Befunde im jeweils gepinnten Stand bereits anders sind.
-- Belege aus realer Nutzung stammen aus `absence` und einem flottenweiten Scan; weitere Services können das Bild verfeinern (z. B. ob ein Service `publisher_connection_name` *nicht* setzt und damit Befund 4 voll trifft).
+- Belege aus realer Nutzung stammen aus `absence` und einem flottenweiten Scan; weitere Services können das Bild verfeinern (z. B. ob ein Service `publisher_connection_name` _nicht_ setzt und damit Befund 4 voll trifft).

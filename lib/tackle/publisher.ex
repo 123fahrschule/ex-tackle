@@ -163,7 +163,7 @@ defmodule Tackle.Publisher do
       true ->
         try do
           Tackle.Exchange.create(state.control_channel, exchange, type)
-          :ets.insert(state.declared, {{exchange, type}})
+          :ets.insert(state.declared, {{exchange, type}, true})
           {:reply, :ok, state}
         catch
           kind, reason ->
@@ -214,7 +214,7 @@ defmodule Tackle.Publisher do
   defp connect(state) do
     with {:ok, connection} <- Tackle.Connection.open(state.name, state.rabbitmq_url),
          {:ok, control_channel} <- AMQP.Channel.open(connection),
-         {:ok, pool} <- start_pool(state, connection) do
+         {:ok, pool} <- start_pool_or_close(state, connection, control_channel) do
       ref = Process.monitor(connection.pid)
       :ets.delete_all_objects(state.declared)
 
@@ -265,6 +265,19 @@ defmodule Tackle.Publisher do
     Process.send_after(self(), :reconnect, state.reconnect_interval)
   end
 
+  # Start the channel pool, closing the just-opened control channel if the pool
+  # fails to start, so the channel is not leaked on a partial connect.
+  defp start_pool_or_close(state, connection, control_channel) do
+    case start_pool(state, connection) do
+      {:ok, pool} ->
+        {:ok, pool}
+
+      error ->
+        close_channel(control_channel)
+        error
+    end
+  end
+
   defp start_pool(state, connection) do
     NimblePool.start_link(
       worker: {Tackle.Publisher.ChannelPool, %{connection: connection}},
@@ -285,9 +298,11 @@ defmodule Tackle.Publisher do
     :ok
   end
 
-  defp close_control_channel(%{control_channel: nil}), do: :ok
+  defp close_control_channel(%{control_channel: channel}), do: close_channel(channel)
 
-  defp close_control_channel(%{control_channel: channel}) do
+  defp close_channel(nil), do: :ok
+
+  defp close_channel(channel) do
     if Process.alive?(channel.pid) do
       try do
         AMQP.Channel.close(channel)

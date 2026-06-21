@@ -36,8 +36,8 @@ defmodule Tackle.PublisherReconnectTest do
       Support.cleanup!(ReconnectConsumer)
     end)
 
-    {:ok, _} = ReconnectConsumer.start_link()
-    :timer.sleep(1000)
+    {:ok, pid} = ReconnectConsumer.start_link()
+    Support.wait_consumer_ready(pid)
 
     %{name: name}
   end

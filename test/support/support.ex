@@ -65,8 +65,20 @@ defmodule Support do
     end
 
     case Keyword.get(Tackle.Connection.get_all(), name) do
-      nil -> :ok
-      connection -> if Process.alive?(connection.pid), do: Tackle.Connection.close(connection)
+      nil ->
+        :ok
+
+      connection ->
+        # The connection may die between the liveness check and the close (e.g.
+        # a concurrent publisher reconnect), so don't let a failed close abort
+        # test cleanup.
+        if Process.alive?(connection.pid) do
+          try do
+            Tackle.Connection.close(connection)
+          catch
+            _kind, _reason -> :ok
+          end
+        end
     end
 
     :ok

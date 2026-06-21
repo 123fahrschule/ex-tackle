@@ -44,6 +44,8 @@ defmodule Tackle do
       connection behaviour.
     * `:confirm` — override the global publisher-confirms setting for this call.
     * `:confirm_timeout` — override the confirm timeout (ms) for this call.
+    * `:exchange_type` — override the exchange type used when declaring the
+      target exchange (defaults to the `:tackle, :exchange_type` config, `:direct`).
 
   Returns `:ok` or `{:error, reason}`. With confirms enabled, an unroutable
   message, a negative confirm, or a timeout is reported as an error tuple
