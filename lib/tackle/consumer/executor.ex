@@ -90,7 +90,8 @@ defmodule Tackle.Consumer.Executor do
   def handle_continue(:try_consume, state), do: {:noreply, state}
 
   # Retry opening channel and setup topology
-  def handle_info(:retry_setup_after_delay, state = %{channel_retry_ref: nil}), do: {:noreply, state}
+  def handle_info(:retry_setup_after_delay, state = %{channel_retry_ref: nil}),
+    do: {:noreply, state}
 
   def handle_info(:retry_setup_after_delay, state = %{channel_retry_ref: ref})
       when is_reference(ref) do

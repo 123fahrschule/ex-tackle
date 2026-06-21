@@ -25,6 +25,7 @@ defmodule Tackle.Mixfile do
   defp deps do
     [
       {:amqp, "~> 4.1"},
+      {:nimble_pool, "~> 1.1"},
       {:req, "~> 0.5.18", only: [:test, :dev]}
     ]
   end
