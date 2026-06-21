@@ -8,8 +8,17 @@ defmodule Tackle.DelayedRetry do
   def retry_count_from_headers([_ | tail]), do: retry_count_from_headers(tail)
 
   def publish(rabbitmq_url, queue, payload, message_options) do
-    Tackle.execute(rabbitmq_url, :default, fn channel ->
-      AMQP.Basic.publish(channel, "", queue, payload, message_options)
-    end)
+    # Route through the shared pooled publisher (default exchange, no declare)
+    # so an error storm reuses a single connection instead of opening a fresh
+    # one per retried message. The `retry_count` header in `message_options` is
+    # preserved.
+    Tackle.Publisher.publish(
+      Tackle.default_publisher_name(),
+      rabbitmq_url,
+      "",
+      queue,
+      payload,
+      message_options
+    )
   end
 end

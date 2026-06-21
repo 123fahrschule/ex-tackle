@@ -24,5 +24,4 @@ defmodule Tackle.Consumer.State do
 
     struct(__MODULE__, options)
   end
-
 end

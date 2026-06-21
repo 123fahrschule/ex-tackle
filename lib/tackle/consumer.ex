@@ -4,11 +4,21 @@ defmodule Tackle.Consumer do
     @type message_metadata :: map()
     @type error :: term()
     @type current_attempt :: integer()
-    @type max_number_of_attemts :: integer()
+    @type max_number_of_attempts :: integer()
 
     @callback handle_message(String.t()) :: any()
-    @callback on_error(payload, message_metadata, error, current_attempt, max_number_of_attemts) ::
+    @callback on_error(payload, message_metadata, error, current_attempt, max_number_of_attempts) ::
                 any()
+
+    @doc """
+    Called exactly once, after the final failed attempt, when the message is
+    routed to the dead queue and no further retries will happen.
+
+    Use this instead of comparing `current_attempt` with `max_number_of_attempts`
+    inside `on_error/5` to decide whether an error is final (e.g. to report it to
+    Sentry). `on_error/5` still fires for every attempt, including the last one.
+    """
+    @callback on_retries_exhausted(payload, message_metadata, error) :: any()
   end
 
   defmacro __using__(opts) do
@@ -55,11 +65,15 @@ defmodule Tackle.Consumer do
             _message_metadata,
             _error_reason,
             _current_attempt,
-            _max_number_of_attemts
+            _max_number_of_attempts
           ),
           do: :ok
 
       defoverridable(on_error: 5)
+
+      def on_retries_exhausted(_payload, _message_metadata, _error_reason), do: :ok
+
+      defoverridable(on_retries_exhausted: 3)
 
       def retry_dead_messages(how_many \\ 1) do
         # FIXME: Muss nicht zum Executor gehen...

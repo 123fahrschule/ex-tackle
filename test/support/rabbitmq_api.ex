@@ -15,4 +15,8 @@ defmodule Support.RabbitmqAPI do
   def list_queues() do
     Req.get!(@client, url: "/queues")
   end
+
+  def list_connections() do
+    Req.get!(@client, url: "/connections")
+  end
 end

@@ -29,6 +29,61 @@ defmodule Support do
     RabbitmqAPI.list_queues().body |> Enum.map(fn %{"name" => name} -> name end)
   end
 
+  @doc """
+  All AMQP connection names (the client-provided `connection_name`) currently
+  open on the broker, as reported by the management API.
+  """
+  def rabbitmq_connection_names() do
+    RabbitmqAPI.list_connections().body
+    |> Enum.map(fn conn -> get_in(conn, ["client_properties", "connection_name"]) end)
+  end
+
+  @doc """
+  How many connections with the given `user_provided_name` are open.
+
+  The management API stats lag slightly behind reality, so assertions on this
+  value should be wrapped in `wait_until/2`.
+  """
+  def rabbitmq_connection_count(name) do
+    name = to_string(name)
+
+    rabbitmq_connection_names()
+    |> Enum.count(&(&1 == name))
+  end
+
+  @doc """
+  Stop the pooled publisher registered under `name` (if any) and close its
+  cached connection, so a following test starts from a clean slate.
+  """
+  def stop_publisher(name) do
+    case Registry.lookup(Tackle.Publisher.Registry, name) do
+      [{pid, _meta}] ->
+        DynamicSupervisor.terminate_child(Tackle.Publisher.Supervisor, pid)
+
+      _ ->
+        :ok
+    end
+
+    case Keyword.get(Tackle.Connection.get_all(), name) do
+      nil ->
+        :ok
+
+      connection ->
+        # The connection may die between the liveness check and the close (e.g.
+        # a concurrent publisher reconnect), so don't let a failed close abort
+        # test cleanup.
+        if Process.alive?(connection.pid) do
+          try do
+            Tackle.Connection.close(connection)
+          catch
+            _kind, _reason -> :ok
+          end
+        end
+    end
+
+    :ok
+  end
+
   def cleanup!(consumer_module) do
     execute(fn channel ->
       topology = consumer_module.topology()
