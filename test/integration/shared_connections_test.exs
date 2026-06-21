@@ -75,8 +75,8 @@ defmodule Tackle.SharedConnection.Test do
       Support.wait_consumer_ready(c1)
       Support.wait_consumer_ready(c2)
 
-      # only one connection opend
-      assert Tackle.Connection.get_all() |> Enum.count() == 1
+      # only one connection opened for both consumers
+      assert single_connection_count() == 1
 
       verify_consumer_functionality()
 
@@ -87,7 +87,7 @@ defmodule Tackle.SharedConnection.Test do
       Process.exit(c2, :kill)
 
       # kill connection process
-      assert Tackle.Connection.get_all() |> Enum.count() == 1
+      assert single_connection_count() == 1
       old_pid = get_all_connections()
       old_pid |> Process.exit(:kill)
 
@@ -98,7 +98,7 @@ defmodule Tackle.SharedConnection.Test do
       Support.wait_consumer_ready(c2)
 
       # new connection process?
-      assert Tackle.Connection.get_all() |> Enum.count() == 1
+      assert single_connection_count() == 1
       new_pid = get_all_connections()
       assert old_pid != new_pid
 
@@ -120,6 +120,14 @@ defmodule Tackle.SharedConnection.Test do
 
     def get_all_connections do
       Tackle.Connection.get_all() |> Keyword.get(:single_connection) |> Map.get(:pid)
+    end
+
+    # The consumers share the `:single_connection` connection. Publishing now
+    # maintains its own pooled-publisher connection in the same cache, so this
+    # counts only the consumer connection.
+    def single_connection_count do
+      Tackle.Connection.get_all()
+      |> Enum.count(fn {name, _conn} -> name == :single_connection end)
     end
 
     def rcv do

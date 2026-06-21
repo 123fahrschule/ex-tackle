@@ -79,10 +79,19 @@ defmodule Tackle.Connection do
   end
 
   def reset do
-    get_all()
-    |> Enum.each(fn {_name, conn} ->
-      Tackle.Connection.close(conn)
-      Agent.update(__MODULE__, fn _state -> %{} end)
+    connections = get_all()
+    Agent.update(__MODULE__, fn _state -> %{} end)
+
+    Enum.each(connections, fn {_name, conn} ->
+      # Be defensive: a cached connection may already be down (e.g. closed by a
+      # publisher reconnect), and closing a dead connection would crash.
+      if Process.alive?(conn.pid) do
+        try do
+          Tackle.Connection.close(conn)
+        catch
+          _kind, _reason -> :ok
+        end
+      end
     end)
 
     :ok
@@ -113,7 +122,10 @@ defmodule Tackle.Connection do
       {:ok, connection}
     else
       error ->
-        Logger.error("Failed to open new secure connection(name: `#{name}`) due to `#{inspect(error)}`")
+        Logger.error(
+          "Failed to open new secure connection(name: `#{name}`) due to `#{inspect(error)}`"
+        )
+
         error
     end
   end
