@@ -1,0 +1,77 @@
+version: 2.1
+
+jobs:
+  build-and-test:
+    docker:
+      # Primary container — muss zur GitHub-Actions-Konfiguration passen:
+      # Elixir 1.19.5 / Erlang-OTP 28.5
+      - image: hexpm/elixir:1.19.5-erlang-28.5.0.2-ubuntu-resolute-20260610
+        environment:
+          MIX_ENV: test
+          LANG: de_DE.UTF-8
+          LC_ALL: de_DE.UTF-8
+          TZ: Europe/Berlin
+      # Service container — über localhost erreichbar (gleicher Netzwerk-Namespace).
+      # Tests nutzen RABBITMQ_HOST=localhost / guest:guest (siehe config/test.exs).
+      - image: rabbitmq:4.2-management
+
+    working_directory: ~/ex-tackle
+
+    steps:
+      # Das minimale hexpm-Image bringt kein git/SSH mit — wird für checkout
+      # und mix deps.get (HTTPS) benötigt.
+      - run:
+          name: Install git & CA certificates
+          command: |
+            apt-get update -qq
+            apt-get install -y --no-install-recommends git openssh-client ca-certificates
+
+      - checkout
+
+      - restore_cache:
+          keys:
+            - mix-cache-{{ checksum "mix.lock" }}
+            - mix-cache-
+
+      - run:
+          name: Install Hex & Rebar
+          command: |
+            mix local.hex --force
+            mix local.rebar --force
+
+      - run:
+          name: Install dependencies
+          command: mix deps.get
+
+      - run:
+          name: Compile dependencies
+          command: mix deps.compile
+
+      - save_cache:
+          key: mix-cache-{{ checksum "mix.lock" }}
+          paths:
+            - deps
+            - _build
+
+      - run:
+          name: Wait for RabbitMQ
+          command: |
+            for i in $(seq 1 30); do
+              if (echo > /dev/tcp/localhost/5672) 2>/dev/null; then
+                echo "RabbitMQ ist erreichbar"
+                exit 0
+              fi
+              echo "Warte auf RabbitMQ ($i/30)..."
+              sleep 2
+            done
+            echo "RabbitMQ wurde nicht rechtzeitig erreichbar"
+            exit 1
+
+      - run:
+          name: Run tests
+          command: mix test
+
+workflows:
+  ci:
+    jobs:
+      - build-and-test
