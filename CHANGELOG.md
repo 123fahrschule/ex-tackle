@@ -5,10 +5,16 @@
 ### Enhancements
 
 * Added an `on_retries_exhausted/3` consumer callback that is invoked exactly once, after the final failed attempt when the message is routed to the dead queue. Use it to report final errors (e.g. to Sentry) instead of comparing `current_attempt` with `max_number_of_attempts` inside `on_error/5`.
+* Publishing now routes through a long-lived, supervised pooled publisher (`Tackle.Publisher`) instead of opening a new connection per message. Each publisher (one per connection name) owns a persistent connection and a small channel pool (via the new `nimble_pool` dependency), and declares each exchange only once (re-declaring on reconnect). This fixes the connection churn under load described in the architecture review (Finding 4). See the README "Publishing" and "Migrating to the pooled publisher" sections.
+* The retry/dead-letter path now publishes through the shared pooled publisher instead of opening a fresh connection per retried message, so error storms no longer multiply connections.
+* Added optional publisher confirms, configurable globally (`config :tackle, publisher_confirms: true`) and per call (`Tackle.publish(msg, %{..., confirm: true})`), with a configurable timeout. `Tackle.publish/2` now returns `{:error, reason}` on a negative confirm, a timeout, or an unroutable message instead of silently dropping it (Finding 10). Confirms are off by default.
+* Added the `publisher_strategy`, `publisher_pool_size`, `publisher_confirms`, `publisher_confirm_timeout`, and `publisher_reconnect_interval` configuration keys. See the README "Configuration reference".
+* Documented `publisher_connection_name` in the README (analogous to the consumer `connection_id`).
 
 ### Fixed
 
 * Fixed the `max_number_of_attemts` typo (now `max_number_of_attempts`) in the `Tackle.Consumer.Behaviour` callback types and documentation.
+* Made `Tackle.Connection.reset/0` defensive against cached connections whose process has already died.
 
 ## v1.1.1 - 2026-06-04
 

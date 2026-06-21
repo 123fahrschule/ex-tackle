@@ -39,6 +39,96 @@ options = %{
 Tackle.publish("Hi!", options)
 ```
 
+`Tackle.publish/2` returns `:ok` or `{:error, reason}`.
+
+### How publishing works
+
+Publishing routes through a long-lived, **supervised publisher**. There is one
+publisher process per connection name; it owns a persistent AMQP connection and
+a small pool of channels (via [`nimble_pool`](https://hex.pm/packages/nimble_pool)).
+Publishing checks a channel out of the pool and runs in the calling process, so
+ex-tackle does **not** open a connection (and re-declare the exchange) per
+message anymore. Each exchange is declared only once per
+`{connection, exchange, type}`; the cache is invalidated and the exchange is
+re-declared after a reconnect.
+
+Publishers are started lazily on first publish, so your application boots even
+when the broker is temporarily unavailable. If the connection is lost, the
+publisher reconnects with a backoff and re-declares its exchanges.
+
+### Sharing a publisher connection (`publisher_connection_name`)
+
+Analogous to the consumer `connection_id`, `publisher_connection_name` selects
+which publisher (and therefore which connection) a publish uses. All publishes
+that share a name share a single connection:
+
+``` elixir
+options = %{
+  rabbitmq_url: "amqp://localhost",
+  exchange: "test-exchange",
+  routing_key: "test-messages",
+  publisher_connection_name: "My Service Publisher"
+}
+
+Tackle.publish("Hi!", options)
+```
+
+If you do not supply `publisher_connection_name`, a shared default publisher is
+used. The retry/dead-letter path uses this same shared default publisher, so
+even an error storm reuses a single connection instead of opening one per
+retried message.
+
+### Tuning the channel pool
+
+Each publisher keeps a small pool of channels. Channels multiplex over the one
+connection, so the pool size bounds how many publishes can run truly
+concurrently before they serialize. The default is `4`:
+
+``` elixir
+# config/config.exs
+config :tackle, publisher_pool_size: 8
+```
+
+### Publisher confirms
+
+By default, publishing is fire-and-forget (`:ok` once handed to the channel).
+You can enable [publisher confirms](https://www.rabbitmq.com/confirms.html) so a
+publish waits for the broker to acknowledge the message and reports an error
+instead of silently dropping it. This adds latency, so it is **off by default**
+and configurable globally or per call:
+
+``` elixir
+# Enable globally
+config :tackle,
+  publisher_confirms: true,
+  publisher_confirm_timeout: 5_000
+```
+
+``` elixir
+# ...or per publish (overrides the global setting)
+Tackle.publish("Hi!", Map.put(options, :confirm, true))
+```
+
+With confirms enabled, `Tackle.publish/2` returns:
+
+* `:ok` — the broker confirmed the message,
+* `{:error, :unroutable}` — no queue was bound for the routing key,
+* `{:error, :nack}` — the broker negatively acknowledged the message,
+* `{:error, :confirm_timeout}` — no confirm arrived within the timeout.
+
+### The legacy per-call behaviour (`:default`)
+
+Before the pooled publisher, every publish opened and closed its own connection.
+That behaviour is still available for backwards compatibility, either globally:
+
+``` elixir
+config :tackle, publisher_strategy: :per_call
+```
+
+or per call by passing `publisher_connection_name: :default`. The pooled
+publisher is the recommended path; the per-call path remains only as an escape
+hatch and may be removed in a future release.
+
 ## Consuming messages from an exchange
 
 ![Tackle Consumer Topology](https://raw.githubusercontent.com/STUDITEMPS/ex-tackle/master/topology.png)
@@ -155,3 +245,49 @@ In your `config.exs` put:
 ```
 config :tackle, exchange_type: :topic
 ```
+
+## Migrating from per-call publishing to the pooled publisher
+
+Earlier versions opened a new connection for every published (and every
+retried) message. Publishing now routes through a long-lived, pooled publisher.
+
+**What you need to do:** nothing — the change is backwards compatible. The
+public `Tackle.publish/2` API, the `publisher_connection_name` option, the
+consumer `connection_id` option, and the `Tackle.Consumer` callbacks are all
+unchanged.
+
+**What changes under the hood:**
+
+* Publishing reuses one connection and a pool of channels instead of opening a
+  connection per message.
+* The exchange is declared once per publisher, not on every publish.
+* The retry/dead-letter path reuses the shared publisher connection instead of
+  opening a fresh connection per retried message.
+* `Tackle.publish/2` still returns `:ok`, and now also returns `{:error, reason}`
+  when publisher confirms are enabled and the broker does not confirm the
+  message.
+
+**Recommended settings:**
+
+* Keep the default pooled strategy.
+* Set `publisher_connection_name` per service (or per logical publisher) to make
+  connections easy to identify in the RabbitMQ management UI.
+* Leave publisher confirms off unless you need the delivery guarantee; enable
+  them per call for the publishes that must not be silently lost.
+
+If you must restore the old per-call behaviour, set
+`config :tackle, publisher_strategy: :per_call` (global) or pass
+`publisher_connection_name: :default` (per call).
+
+## Configuration reference
+
+All keys live under the `:tackle` application config (`config :tackle, ...`):
+
+| Key | Default | Description |
+|---|---|---|
+| `publisher_strategy` | `:pooled` | `:pooled` uses the long-lived pooled publisher; `:per_call` restores the legacy connection-per-message behaviour. |
+| `publisher_pool_size` | `4` | Number of channels per publisher. |
+| `publisher_confirms` | `false` | Enable publisher confirms (wait for broker acknowledgement). |
+| `publisher_confirm_timeout` | `5_000` | Milliseconds to wait for a confirm before returning `{:error, :confirm_timeout}`. |
+| `publisher_reconnect_interval` | `1_000` | Milliseconds to wait before a publisher retries a lost connection. |
+| `exchange_type` | `:direct` | Type used when declaring exchanges (`:direct`, `:topic`, `:fanout`, `:headers`, `:match`). |
