@@ -129,7 +129,6 @@ defmodule Tackle.Consumer.Executor do
     end
 
     error_callback = fn reason ->
-      Logger.error("Consumption failed: `#{inspect(reason)}`; payload: `#{inspect(payload)}`")
       retry(state, payload, message_metadata, reason)
       :ok = AMQP.Basic.nack(state.channel, tag, multiple: false, requeue: false)
     end
@@ -288,6 +287,10 @@ defmodule Tackle.Consumer.Executor do
       )
     else
       Logger.debug("Sending message to a dead messages queue")
+
+      Logger.error(
+        "Consumption failed: `#{inspect(error_reason)}`; payload: `#{inspect(payload)}`"
+      )
 
       Tackle.DelayedRetry.publish(
         state.rabbitmq_url,
